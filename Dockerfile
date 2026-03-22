@@ -1,23 +1,30 @@
-# Estágio 1: Build da aplicação
+# Estágio 1: Build
 FROM maven:3.9-eclipse-temurin-17-alpine AS builder
-WORKDIR /app
+WORKDIR /build
 
-# Copia o pom.xml primeiro (aproveita cache)
+# Copia arquivos de configuração
 COPY pom.xml .
-RUN mvn dependency:go-offline
+RUN mvn dependency:go-offline -B
 
-# Copia o código fonte e faz o build
+# Copia código fonte e compila
 COPY src ./src
-RUN mvn clean package -DskipTests
+RUN mvn clean package -DskipTests -B
 
 # Estágio 2: Execução
 FROM eclipse-temurin:17-jdk-alpine
 WORKDIR /app
 
-# Copia o JAR do estágio de build
-COPY --from=builder /app/target/*.jar app.jar
+# Instala curl para healthcheck (opcional)
+RUN apk add --no-cache curl
+
+# Copia o JAR do builder
+COPY --from=builder /build/target/*.jar /app/app.jar
+
+# Verifica se o JAR existe (debug)
+RUN ls -la /app/
 
 # Expõe a porta
 EXPOSE 8080
 
-# Comando para rodar
+# Comando de entrada com verificação
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
