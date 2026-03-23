@@ -45,9 +45,9 @@ Authorization: Bearer TOKEN
 curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/usuarios \
   -H "Content-Type: application/json" \
   -d '{
-    "nome": "Vitor",
+    "nome": "SEU_NOME",
     "email": "email@email.com",
-    "senha": "123456"
+    "senha": "NOVA_SENHA"
   }'
 ```
 
@@ -60,7 +60,7 @@ curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/login 
   -H "Content-Type: application/json" \
   -d '{
     "email": "email@email.com",
-    "senha": "123456"
+    "senha": "SUA_SENHA"
   }'
 ```
 
@@ -111,7 +111,7 @@ curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/novase
   -H "Content-Type: application/json" \
   -d '{
     "email": "email@email.com",
-    "codigo": "123456"
+    "codigo": "SEU_CODIGO"
   }'
 ```
 
@@ -124,8 +124,8 @@ curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/novase
   -H "Content-Type: application/json" \
   -d '{
     "token": "TOKEN",
-    "senha": "novaSenha",
-    "confirmarSenha": "novaSenha"
+    "senha": "NOVA_SENHA",
+    "confirmarSenha": "NOVA_SENHA"
   }'
 ```
 
