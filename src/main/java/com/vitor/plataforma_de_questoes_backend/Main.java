@@ -1,14 +1,11 @@
 package com.vitor.plataforma_de_questoes_backend;
 
 import jakarta.persistence.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
+
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.Duration;
 
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.annotations.Type;
-import org.hibernate.type.SqlTypes;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.http.HttpStatus;
@@ -21,31 +18,21 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.hibernate.type.descriptor.jdbc.JdbcType;
-import org.hibernate.type.descriptor.jdbc.VarcharJdbcType;
-import org.hibernate.type.descriptor.java.EnumJavaType;
-import org.hibernate.type.AbstractSingleColumnStandardBasicType;
 
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
@@ -105,9 +92,11 @@ interface UsuarioRepository extends JpaRepository<Usuario, Long> {
     Optional<Usuario> findByEmail(String email);
 }
 interface AuthTokenRepository extends JpaRepository<AuthToken, Long> {
-    Optional<AuthToken> findByToken(String token);
-    void deleteByToken(String token);
-    boolean existsByToken(String token);
+    Optional<AuthToken> findByTokenHash(String token);
+    Optional<AuthToken> findByUsuario(Optional<Usuario> usuario);
+    void deleteByTokenHash(String token);
+    void deleteByUsuario(Usuario usuario);
+    boolean existsByTokenHash(String token_hash);
 }
 interface QuestaoRepository extends JpaRepository<Questao, Long> {
 
@@ -301,20 +290,23 @@ class AuthToken {
         return usuario;
     }
     @Column(nullable = false, unique = true)
-    private String token;
+    private String token_hash;
 
+    public LocalDateTime getLocalDateTime() {
+        return criadoEm ;
+    }
     @Column(name = "criado_em")
     private LocalDateTime criadoEm = LocalDateTime.now();
 
     public AuthToken() {}
 
-    public AuthToken(Usuario usuario, String token) {
+    public AuthToken(Usuario usuario, String token_hash) {
         this.usuario = usuario;
-        this.token = token;
+        this.token_hash = token_hash;
     }
 
-    public String getToken() {
-        return token;
+    public String getTokenHash() {
+        return token_hash;
     }
 }
 @Entity
@@ -345,7 +337,9 @@ class NewPasswordToken {
     private String token;
 
 
-
+    public LocalDateTime getLocalDateTime() {
+        return criadoEm ;
+    }
     @Column(name = "criado_em")
     private LocalDateTime criadoEm = LocalDateTime.now();
 
@@ -444,7 +438,10 @@ class UsuarioController {
         return ResponseEntity.status(201).body("Usuário criado com sucesso!");
     }
 }
-
+class AuthTokenRequest {
+    public String email;
+    public String token;
+}
 @RestController
 @RequestMapping("/api/auth")
 class AuthController {
@@ -457,7 +454,7 @@ class AuthController {
         this.usuarioRepo = usuarioRepo;
         this.tokenRepo = tokenRepo;
     }
-
+    @Transactional
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest req) {
 
@@ -476,32 +473,34 @@ class AuthController {
                     .status(401)
                     .body("Email ou senha incorretos. Esqueceu a senha?");
         }
-
+        tokenRepo.deleteByUsuario(usuario);
         // gera token simples
         String token = java.util.UUID.randomUUID().toString();
-
-        tokenRepo.save(new AuthToken(usuario, token));
+        String token_hash=encoder.encode(token);
+        tokenRepo.save(new AuthToken(usuario, token_hash));
 
         return ResponseEntity.ok(token);
     }
+
+
     @Transactional
     @PostMapping("/logout")
     public ResponseEntity<?> logout(
-            @RequestHeader("Authorization") String authHeader
+            @RequestBody AuthTokenRequest req
     ) {
-        if (!authHeader.startsWith("Bearer ")) {
-            return ResponseEntity.status(401).body("Token inválido");
-        }
 
-        String token = authHeader.substring(7);
-
-        var tokenOpt = tokenRepo.findByToken(token);
+        var usuario=usuarioRepo.findByEmail(req.email);
+        var tokenOpt = tokenRepo.findByUsuario(usuario);
 
         if (tokenOpt.isEmpty()) {
-            return ResponseEntity.status(401).body("Token inválido");
+            return ResponseEntity.status(401).body("Requisição Invalida");
         }
-
-        tokenRepo.deleteByToken(token);
+        if (!encoder.matches(req.token,tokenOpt.get().getTokenHash())) {
+            return ResponseEntity
+                    .status(401)
+                    .body("Requisição Invalida");
+        }
+        tokenRepo.deleteByUsuario(usuario.get());
 
         return ResponseEntity.ok("Logout realizado com sucesso");
     }
@@ -510,13 +509,17 @@ class AuthController {
 @CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/me")
+@Transactional
 class MeController {
     private final QuestaoRepository questaoRepo;
     private final AuthTokenRepository tokenRepo;
+    private final UsuarioRepository usuarioRepo;
+    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
-    public MeController(AuthTokenRepository tokenRepo, QuestaoRepository questaoRepo) {
+    public MeController(UsuarioRepository usuarioRepo,AuthTokenRepository tokenRepo, QuestaoRepository questaoRepo) {
         this.tokenRepo = tokenRepo;
         this.questaoRepo=questaoRepo;
+        this.usuarioRepo=usuarioRepo;
     }
     @GetMapping
     public ResponseEntity<?> me(
@@ -526,20 +529,31 @@ class MeController {
             @RequestParam String dificuldade
     ) {
 
-        if (!tokenRepo.existsByToken(token)) {
-            return ResponseEntity.status(401).body("Nao autorizado");
-        }
-        var tokenOpt=tokenRepo.findByToken(token);
-
-        Usuario usuario=tokenOpt.get().getUsuario();
-
+        var usuario=usuarioRepo.findByEmail(email);
+        var tokenOpt = tokenRepo.findByUsuario(usuario);
         if (tokenOpt.isEmpty()) {
-            return ResponseEntity.status(401).body("Nao autorizado");
+            return ResponseEntity.status(401).body("Requisição Invalida 1");
         }
-        if(!usuario.getEmail().equals(email)){
-            return ResponseEntity.status(401).body("Nao autorizado");
+        if(!usuario.get().getEmail().equals(email)) {
+            return ResponseEntity.status(401).body("Requisição Invalida 2");
+        }
+        if (!encoder.matches(token,tokenOpt.get().getTokenHash())) {
+            return ResponseEntity
+                    .status(401)
+                    .body("Requisição Inválida 3");
         }
 
+        LocalDateTime data=tokenOpt.get().getLocalDateTime();
+        LocalDateTime agora = LocalDateTime.now();
+
+        Duration duracao = Duration.between(data, agora);
+
+        long segundos = duracao.getSeconds();
+
+        if (segundos > 60) {
+            tokenRepo.deleteByUsuario(usuario.get());
+            return ResponseEntity.status(401).body("Requisicao expirada, faça login novamente!");
+        }
 
         var questoes = questaoRepo.buscar(
                 assunto,
@@ -662,6 +676,18 @@ class PasswordResetController {
         }
 
         var tokenOpt = tokenRepo.findByUsuario(usuario);
+        LocalDateTime data=tokenOpt.get().getLocalDateTime();
+        LocalDateTime agora = LocalDateTime.now();
+
+        Duration duracao = Duration.between(data, agora);
+
+        long segundos = duracao.getSeconds();
+
+        if (segundos > 60) {
+            System.out.println("segundos: " + segundos);
+            tokenRepo.deleteByUsuario(usuario);
+            return ResponseEntity.status(401).body("Codigo expirado, solicite novo codigo!");
+        }
         String codigoCorreto=tokenOpt.get().getCodigo();
         String token = tokenOpt.get().getToken();
         if(codigoCorreto.equals(req.codigo)) {
@@ -679,10 +705,6 @@ class PasswordResetController {
     public ResponseEntity<?> solicitarNovaSenha(
             @RequestBody NovaSenhaCadastro req
     ) {
-
-
-
-
         if (!tokenRepo.existsByToken(req.token)) {
             return ResponseEntity.status(401).body("Nao Autorizado");
         }
@@ -690,8 +712,20 @@ class PasswordResetController {
             return ResponseEntity.status(401).body("Senhas não sãos iguais");
         }
         var tokenOpt = tokenRepo.findByToken(req.token);
-        Usuario usuario=tokenOpt.get().getUsuario();
 
+        Usuario usuario=tokenOpt.get().getUsuario();
+        LocalDateTime data=tokenOpt.get().getLocalDateTime();
+        LocalDateTime agora = LocalDateTime.now();
+
+        Duration duracao = Duration.between(data, agora);
+
+        long segundos = duracao.getSeconds();
+
+        if (segundos > 60) {
+            System.out.println("segundos: " + segundos);
+            tokenRepo.deleteByUsuario(usuario);
+            return ResponseEntity.status(401).body("Requisição expirada, solicite novo codigo!");
+        }
         usuario.setSenhaHash(encoder.encode(req.senha));
         usuarioRepo.save(usuario);
         // 5️⃣ resposta segura
@@ -717,10 +751,10 @@ class SecurityConfig {
                             "/api/usuarios",
                             "/api/auth/login",
                             "/api/auth/logout",
-                            "/api/me",
+                            "/api/me",   //token
                             "/api/auth/novasenha/codigo",
-                            "/api/auth/novasenha/token",
-                            "/api/auth/novasenha/cadastro"
+                            "/api/auth/novasenha/token",  //codigo
+                            "/api/auth/novasenha/cadastro"  //token
                     ).permitAll()
                     .anyRequest().authenticated()
             )
