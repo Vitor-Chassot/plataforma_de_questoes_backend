@@ -6,47 +6,52 @@ Backend em Java + Spring Boot para uma plataforma de questões de matemática.
 
 ## 🚀 Funcionalidades
 
-- Cadastro de usuários  
-- Login com token (armazenado como hash no banco)  
-- Logout  
-- Recuperação de senha por e-mail (fluxo seguro em 3 etapas)  
-- Seleção de questões por assunto e dificuldade  
-- Expiração de tokens  
+- Cadastro de usuários
+- Login com token de sessão
+- Logout
+- Recuperação de senha por e-mail em 3 etapas
+- Seleção de questões por assunto e dificuldade
+- Expiração de tokens por tempo
+- Hash de senha com BCrypt
+- Hash de token com HMAC-SHA256
 
 ---
 
 ## 🧰 Tecnologias
 
-- Java  
-
-- Spring Boot  
-- Spring Data JPA  
-- Spring Security  
-- PostgreSQL  
-- Supabase  
-- JavaMailSender  
-- BCrypt (hash de senha)  
-- HMAC-SHA256 (hash de tokens)
+- Java
+- Spring Boot
+- Spring Data JPA
+- Spring Security
+- PostgreSQL
+- Supabase
+- JavaMailSender
+- BCrypt
+- HMAC-SHA256
 
 ---
 
 ## 🌐 Base URL
 
-Produção:  
+Produção:
+
+```bash
 https://plataforma-de-questoes-backend.onrender.com
+```
 
 ---
 
 ## 🔐 Autenticação
 
-O sistema **NÃO usa JWT**.
+Este sistema **não usa JWT**.
 
-- Token é gerado no login (UUID)  
-- Retornado ao cliente  
-- Armazenado como **hash (HMAC-SHA256)** no banco  
-- Validado comparando hashes  
+Fluxo:
 
-📌 O token deve ser enviado manualmente (query params ou body).
+1. O usuário faz login.
+2. O backend gera um token UUID.
+3. O token é retornado ao cliente.
+4. O token é salvo no banco apenas como **hash HMAC-SHA256**.
+5. Nas próximas requisições, o cliente envia o token manualmente.
 
 ---
 
@@ -54,25 +59,31 @@ O sistema **NÃO usa JWT**.
 
 ---
 
-### 👤 Cadastro
+### 👤 Cadastro de usuário
 
 **POST** `/api/usuarios`
 
-#### Body (DTO: `UsuarioCadastroRequest`)
-~~~json
+Cria um novo usuário.
+
+#### Body
+```json
 {
   "nome": "SEU_NOME",
   "email": "email@email.com",
   "senha": "SUA_SENHA"
 }
-~~~
+```
 
-#### Exemplo:
-~~~bash
+#### Comando completo
+```bash
 curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/usuarios \
 -H "Content-Type: application/json" \
 -d '{"nome":"SEU_NOME","email":"email@email.com","senha":"SUA_SENHA"}'
-~~~
+```
+
+#### Respostas possíveis
+- `201 Created` → Usuário criado com sucesso
+- `409 Conflict` → Já existe usuário com este e-mail
 
 ---
 
@@ -80,18 +91,31 @@ curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/usuarios \
 
 **POST** `/api/auth/login`
 
-#### Body (DTO: `LoginRequest`)
-~~~json
+Faz login com e-mail e senha. Retorna um token de sessão.
+
+#### Body
+```json
 {
   "email": "email@email.com",
   "senha": "SUA_SENHA"
 }
-~~~
+```
 
-#### Resposta:
-~~~
-TOKEN
-~~~
+#### Comando completo
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/login \
+-H "Content-Type: application/json" \
+-d '{"email":"email@email.com","senha":"SUA_SENHA"}'
+```
+
+#### Respostas possíveis
+- `200 OK` → retorna o token em texto puro
+- `401 Unauthorized` → e-mail ou senha incorretos
+
+#### Exemplo da resposta
+```bash
+TOKEN_AQUI
+```
 
 ---
 
@@ -99,13 +123,26 @@ TOKEN
 
 **POST** `/api/auth/logout`
 
-#### Body (DTO: `LogoutRequest`)
-~~~json
+Remove o token de sessão informado.
+
+#### Body
+```json
 {
   "email": "email@email.com",
   "token": "TOKEN"
 }
-~~~
+```
+
+#### Comando completo
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/logout \
+-H "Content-Type: application/json" \
+-d '{"email":"email@email.com","token":"TOKEN"}'
+```
+
+#### Respostas possíveis
+- `200 OK` → Logout realizado com sucesso
+- `401 Unauthorized` → requisição inválida
 
 ---
 
@@ -113,42 +150,76 @@ TOKEN
 
 **GET** `/api/me`
 
-#### Query Params:
+Busca questões filtradas por assunto e dificuldade, validando o token de sessão.
+
+#### Query params
 - `email`
 - `token`
 - `assunto`
 - `dificuldade`
 
-#### Exemplo:
-~~~bash
+#### Comando completo
+```bash
 curl -G https://plataforma-de-questoes-backend.onrender.com/api/me \
 --data-urlencode "email=email@email.com" \
 --data-urlencode "token=TOKEN" \
 --data-urlencode "assunto=GEOMETRIA_PLANA" \
 --data-urlencode "dificuldade=MEDIO"
-~~~
+```
 
-#### Regras:
-- Token expira em **3600 segundos (1 hora)**  
-- Token inválido → `401`  
-- Token expirado → removido do banco  
+#### Resposta
+Retorna um JSON em texto com uma lista de questões contendo:
+- `conteudo`
+- `ano`
+- `numeroQuestao`
+
+#### Exemplo de resposta
+```json
+[
+  {
+    "conteudo": "...",
+    "ano": 2023,
+    "numeroQuestao": 12
+  }
+]
+```
+
+#### Regras
+- Token expira em `3600` segundos (`1 hora`)
+- Token inválido → `401`
+- Token expirado → o token é removido do banco
 
 ---
 
 ## 🔁 Recuperação de senha
 
+O fluxo de recuperação de senha acontece em 3 etapas.
+
+---
+
 ### 1️⃣ Solicitar código
 
 **POST** `/api/auth/novasenha/codigo`
 
-#### Body (DTO: `PasswordSolicitarCodigoRequest`)
-~~~json
+Envia um código de 6 dígitos para o e-mail do usuário.
+
+#### Body
+```json
 {
   "email": "email@email.com"
 }
-~~~
+```
 
-📌 Um código de 6 dígitos é enviado por e-mail.
+#### Comando completo
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/novasenha/codigo \
+-H "Content-Type: application/json" \
+-d '{"email":"email@email.com"}'
+```
+
+#### Respostas possíveis
+- `200 OK` → Código enviado para o seu e-mail
+- `404 Not Found` → Usuário não encontrado
 
 ---
 
@@ -156,21 +227,35 @@ curl -G https://plataforma-de-questoes-backend.onrender.com/api/me \
 
 **POST** `/api/auth/novasenha/token`
 
-#### Body (DTO: `PasswordSolicitarTokenRequest`)
-~~~json
+Valida o código enviado por e-mail e gera um token temporário para redefinição de senha.
+
+#### Body
+```json
 {
   "email": "email@email.com",
   "codigo": "123456"
 }
-~~~
+```
 
-#### Resposta:
-~~~
-TOKEN
-~~~
+#### Comando completo
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/novasenha/token \
+-H "Content-Type: application/json" \
+-d '{"email":"email@email.com","codigo":"123456"}'
+```
 
-#### Regras:
-- Código expira em **300 segundos (5 minutos)**
+#### Respostas possíveis
+- `200 OK` → retorna o token temporário
+- `401 Unauthorized` → requisição não encontrada, código inválido ou código expirado
+- `404 Not Found` → usuário não encontrado
+
+#### Exemplo da resposta
+```bash
+TOKEN: SEU_TOKEN_TEMPORARIO
+```
+
+#### Regras
+- O código expira em `300` segundos (`5 minutos`)
 
 ---
 
@@ -178,76 +263,112 @@ TOKEN
 
 **POST** `/api/auth/novasenha/cadastro`
 
-#### Body (DTO: `PasswordCadastrarRequest`)
-~~~json
+Salva a nova senha usando o token temporário gerado na etapa anterior.
+
+#### Body
+```json
 {
   "email": "email@email.com",
   "token": "TOKEN",
   "senha": "NOVA_SENHA",
   "confirmarSenha": "NOVA_SENHA"
 }
-~~~
+```
 
-#### Regras:
-- Token expira em **300 segundos (5 minutos)**
+#### Comando completo
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/novasenha/cadastro \
+-H "Content-Type: application/json" \
+-d '{"email":"email@email.com","token":"TOKEN","senha":"NOVA_SENHA","confirmarSenha":"NOVA_SENHA"}'
+```
+
+#### Respostas possíveis
+- `200 OK` → Nova senha configurada com sucesso
+- `401 Unauthorized` → token inválido, senha diferente ou requisição expirada
+
+#### Regras
+- O token expira em `300` segundos (`5 minutos`)
+- As senhas `senha` e `confirmarSenha` precisam ser iguais
+
+---
+
+## 📌 Valores aceitos
+
+### Assunto
+- `PROGRESSOES`
+- `CONJUNTOS_NUMERICOS`
+- `VARIAVEIS_E_FUNCOES`
+- `ANALISE_COMBINATORIA_PROBABILIDADE_ESTATISTICA`
+- `POLINOMIOS`
+- `LOGARITMO_E_EXPONENCIAL`
+- `GEOMETRIA_PLANA`
+- `GEOMETRIA_ESPACIAL`
+- `TRIGONOMETRIA`
+
+### Dificuldade
+- `FACIL`
+- `MEDIO`
+- `DIFICIL`
 
 ---
 
 ## ⚠️ Observações importantes
 
-- Tokens são armazenados como **hash (HMAC-SHA256)**  
-- Não é possível recuperar o token original pelo banco  
-- Apenas comparação de hash é utilizada  
-- Múltiplos tokens de sessão podem existir por usuário  
-- Tokens são invalidados manualmente no logout  
-- Tokens expiram com base em tempo  
+- Senhas são armazenadas com **BCrypt**
+- Tokens de sessão são armazenados apenas como **hash**
+- Não é possível recuperar o token original pelo banco
+- O logout remove o token manualmente
+- Múltiplos tokens podem existir para o mesmo usuário
+- Tokens expirados são removidos durante a validação
+- O endpoint `/api/me` usa `GET` com query params, não `POST`
 
 ---
 
 ## 🧠 Design de segurança
 
-- Senhas → BCrypt  
-- Tokens de sessão → HMAC-SHA256  
-- Reset de senha:
-  - Código de 6 dígitos (email)  
-  - Token UUID temporário  
-- Expiração baseada em tempo (`LocalDateTime`)  
-- Remoção de tokens expirados durante validação  
+- **Senha** → BCrypt
+- **Token de sessão** → HMAC-SHA256
+- **Reset de senha** →
+  - código de 6 dígitos enviado por e-mail
+  - token UUID temporário
+- **Controle de tempo** baseado em `LocalDateTime`
 
 ---
 
-## 📌 Enums
+## 🚀 Resumo rápido do fluxo
 
-### Assunto
+### Criar conta
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/usuarios \
+-H "Content-Type: application/json" \
+-d '{"nome":"SEU_NOME","email":"email@email.com","senha":"SUA_SENHA"}'
+```
 
-- PROGRESSOES  
-- CONJUNTOS_NUMERICOS  
-- VARIAVEIS_E_FUNCOES  
-- ANALISE_COMBINATORIA_PROBABILIDADE_ESTATISTICA  
-- POLINOMIOS  
-- LOGARITMO_E_EXPONENCIAL  
-- GEOMETRIA_PLANA  
-- GEOMETRIA_ESPACIAL  
-- TRIGONOMETRIA  
+### Logar
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/login \
+-H "Content-Type: application/json" \
+-d '{"email":"email@email.com","senha":"SUA_SENHA"}'
+```
+
+### Buscar questões
+```bash
+curl -G https://plataforma-de-questoes-backend.onrender.com/api/me \
+--data-urlencode "email=email@email.com" \
+--data-urlencode "token=TOKEN" \
+--data-urlencode "assunto=GEOMETRIA_PLANA" \
+--data-urlencode "dificuldade=MEDIO"
+```
+
+### Sair da sessão
+```bash
+curl -X POST https://plataforma-de-questoes-backend.onrender.com/api/auth/logout \
+-H "Content-Type: application/json" \
+-d '{"email":"email@email.com","token":"TOKEN"}'
+```
 
 ---
 
-### Dificuldade
+## 📎 Observação final
 
-- FACIL  
-- MEDIO  
-- DIFICIL  
-
----
-
-## 🚀 Observação final
-
-Este projeto utiliza:
-
-**token stateful + hash + validação manual**
-
-Diferente de JWT, porém:
-
-- Mais simples para MVP  
-- Controle total sobre sessões  
-- Permite invalidação imediata  
+Este backend foi pensado para ser simples de consumir no terminal e fácil de testar com `curl`, mantendo o fluxo explícito para cadastro, autenticação, busca de questões e recuperação de senha.
