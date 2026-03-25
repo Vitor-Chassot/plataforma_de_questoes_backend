@@ -37,6 +37,7 @@ import java.util.UUID;
 
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
+import tools.jackson.databind.ObjectMapper;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -139,7 +140,7 @@ class AuthController {
         if (usuarioOpt.isEmpty()) {
             return ResponseEntity
                     .status(401)
-                    .body("Email ou senha incorretos. Esqueceu a senha?");
+                    .body("Email ou senha incorretos. Esqueceu a senha?\n");
         }
 
         Usuario usuario = usuarioOpt.get();
@@ -147,14 +148,14 @@ class AuthController {
         if (!encoder.matches(req.senha, usuario.getSenhaHash())) {
             return ResponseEntity
                     .status(401)
-                    .body("Email ou senha incorretos. Esqueceu a senha?");
+                    .body("Email ou senha incorretos. Esqueceu a senha?\n");
         }
         // gera token simples
         String token = java.util.UUID.randomUUID().toString();
         String token_hash = TokenHasher.hash(token);
         tokenRepo.save(new AuthToken(usuario, token_hash));
 
-        return ResponseEntity.ok(token);
+        return ResponseEntity.ok(token+"\n");
     }
 
 
@@ -169,11 +170,11 @@ class AuthController {
         for(AuthToken authToken:authTokenList) {
             if(token_hash.equals(authToken.getTokenHash())) {
                 tokenRepo.delete(authToken);
-                return ResponseEntity.ok("Logout realizado com sucesso");
+                return ResponseEntity.ok("Logout realizado com sucesso\n");
             }
         }
 
-        return ResponseEntity.status(401).body("Requisição Invalida");
+        return ResponseEntity.status(401).body("Requisição Invalida\n");
 
 
 
@@ -256,7 +257,7 @@ class UsuarioController {
         if (repo.existsByEmail(req.email)) {
             return ResponseEntity
                     .status(409) // Conflict
-                    .body("Já existe usuário com este email.");
+                    .body("Já existe usuário com este email.\n");
         }
 
         // 2️⃣ criar entidade
@@ -269,7 +270,7 @@ class UsuarioController {
         // 3️⃣ salvar
         repo.save(u);
 
-        return ResponseEntity.status(201).body("Usuário criado com sucesso!");
+        return ResponseEntity.status(201).body("Usuário criado com sucesso!\n");
     }
 }
 
@@ -397,7 +398,7 @@ class PasswordResetController {
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.NOT_FOUND,
-                                "Usuário não encontrado"
+                                "Usuário não encontrado\n"
                         )
                 );
 
@@ -431,12 +432,12 @@ class PasswordResetController {
 
         } catch (Exception e) {
             // força rollback
-            throw new RuntimeException("Erro ao enviar e-mail", e);
+            throw new RuntimeException("Erro ao enviar e-mail\n", e);
         }
 
         // 5️⃣ resposta segura
         return ResponseEntity.ok(
-                "Código enviado para o seu e-mail."
+                "Código enviado para o seu e-mail.\n"
         );
     }
     @Transactional
@@ -450,19 +451,19 @@ class PasswordResetController {
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.NOT_FOUND,
-                                "Usuário não encontrado"
+                                "Usuário não encontrado\n"
                         )
                 );
 
 
         if (!tokenRepo.existsByUsuario(usuario)) {
-            return ResponseEntity.status(401).body("Requisição não encontrada, solicite novo código!");
+            return ResponseEntity.status(401).body("Requisição não encontrada, solicite novo código!\n");
         }
 
         var tokenOpt=tokenRepo.findByUsuario(usuario);
         String codigo_hash = TokenHasher.hash(req.codigo);
         if(!codigo_hash.equals(tokenOpt.get().getCodigoHash())) {
-            return ResponseEntity.status(401).body("Código Inválido, digite outro código!");
+            return ResponseEntity.status(401).body("Código Inválido, digite outro código!\n");
         }
 
         LocalDateTime data=tokenOpt.get().getLocalDateTime();
@@ -474,7 +475,7 @@ class PasswordResetController {
 
         if (segundos > Constants.MAX_SECONDS_CODE_PASSWORD) {
             tokenRepo.deleteByUsuario(usuario);
-            return ResponseEntity.status(401).body("Codigo expirado, solicite novo codigo!");
+            return ResponseEntity.status(401).body("Codigo expirado, solicite novo codigo!\n");
         }
         String token = UUID.randomUUID().toString();
         String token_hash = TokenHasher.hash(token);
@@ -482,7 +483,7 @@ class PasswordResetController {
         tokenOpt.get().setLocalDateTime(LocalDateTime.now());
         tokenRepo.save(tokenOpt.get());
         return ResponseEntity.ok(
-                "TOKEN: " + token
+                "TOKEN: " + token +"\n"
         );
 
     }
@@ -495,13 +496,13 @@ class PasswordResetController {
         var tokenOpt=tokenRepo.findByUsuario(usuario.get());
         String token_hash= TokenHasher.hash(req.token);
         if (tokenOpt.isEmpty()) {
-            return ResponseEntity.status(401).body("Nao Autorizado");
+            return ResponseEntity.status(401).body("Nao Autorizado\n");
         }
         if(!token_hash.equals(tokenOpt.get().getTokenHash())) {
-            return ResponseEntity.status(401).body("Token Invalido!");
+            return ResponseEntity.status(401).body("Token Invalido!\n");
         }
         if(!req.senha.equals(req.confirmarSenha)) {
-            return ResponseEntity.status(401).body("Senhas não sãos iguais");
+            return ResponseEntity.status(401).body("Senhas não sãos iguais!\n");
         }
 
 
@@ -515,14 +516,14 @@ class PasswordResetController {
 
         if (segundos > Constants.MAX_SECONDS_TOKEN_PASSWORD) {
             tokenRepo.deleteByUsuario(usuario.get());
-            return ResponseEntity.status(401).body("Requisição expirada, solicite novo codigo!");
+            return ResponseEntity.status(401).body("Requisição expirada, solicite novo codigo!\n");
         }
         usuario.get().setSenhaHash(encoder.encode(req.senha));
         usuarioRepo.save(usuario.get());
         tokenRepo.deleteByUsuario(usuario.get());
         // 5️⃣ resposta segura
         return ResponseEntity.ok(
-                "Nova senha configurada com sucesso!."
+                "Nova senha configurada com sucesso!.\n"
         );
 
     }
@@ -675,7 +676,7 @@ class MeController {
             }
         }
         if (!tokenValido) {
-            return ResponseEntity.status(401).body("Requisição Invalida");
+            return ResponseEntity.status(401).body("Requisição Invalida\n");
         }
         LocalDateTime data=authToken.getLocalDateTime();
         LocalDateTime agora = LocalDateTime.now();
@@ -686,7 +687,7 @@ class MeController {
 
         if (segundos > Constants.MAX_SECONDS_TOKEN_SESSION) {
             tokenRepo.deleteByTokenHash(token_hash);
-            return ResponseEntity.status(401).body("Requisicao expirada, faça login novamente!");
+            return ResponseEntity.status(401).body("Requisicao expirada, faça login novamente!\n");
         }
 
         var questoes = questaoRepo.buscar(
@@ -702,8 +703,10 @@ class MeController {
                         q.getNumeroQuestao()
                 ))
                 .toList();
+        ObjectMapper mapper = new ObjectMapper();
+        String json = mapper.writeValueAsString(response);
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(json+"\n");
 
 
 
@@ -772,7 +775,9 @@ class Questao {
 public class Main {
 
     public static void main(String[] args) {
+
         SpringApplication.run(Main.class, args);
+
     }
     /*
     @Bean
